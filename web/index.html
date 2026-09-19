@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AgentHub</title>
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#0c0f14;--panel:#141922;--panel2:#10151d;--line:#273142;
+  --text:#eef3f8;--muted:#8f9aab;--accent:#64a7ff;
+  --ok:#53d18b;--warn:#f0b85a;--bad:#ff7272;--wait:#9aa6b7;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 "Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+button,select{font:inherit}
+.shell{max-width:1240px;margin:0 auto;padding:24px}
+.top{display:flex;gap:18px;align-items:flex-start;justify-content:space-between;margin-bottom:18px}
+.brand h1{font-size:24px;margin:0 0 4px}.brand p{margin:0;color:var(--muted)}
+.controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+select,button{background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:9px;padding:9px 11px}
+button{cursor:pointer}button:hover{border-color:#41516b}
+.conn{display:inline-flex;align-items:center;gap:7px;color:var(--muted)}
+.follow{display:inline-flex;align-items:center;gap:6px;color:var(--muted);white-space:nowrap}.follow input{width:16px;height:16px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--wait)}
+.dot.live{background:var(--ok)}.dot.err{background:var(--bad)}
+.summary{display:grid;grid-template-columns:minmax(0,2fr) repeat(3,minmax(120px,.7fr));gap:12px;margin-bottom:18px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+.metric .k{font-size:12px;color:var(--muted);margin-bottom:5px}.metric .v{font-size:18px;font-weight:650;overflow-wrap:anywhere}
+.title-card .v{font-size:20px}.sub{color:var(--muted);font-size:12px;margin-top:5px;overflow-wrap:anywhere}
+.section-head{display:flex;align-items:center;justify-content:space-between;margin:20px 0 10px}
+.section-head h2{font-size:16px;margin:0}.section-head span{color:var(--muted);font-size:12px}
+.agents{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.agent{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;min-width:0}
+.agent-top{display:flex;gap:10px;justify-content:space-between;align-items:flex-start}
+.agent-name{font-size:16px;font-weight:650;overflow-wrap:anywhere}
+.badge{white-space:nowrap;border:1px solid var(--line);border-radius:999px;padding:3px 8px;font-size:12px}
+.s-completed{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 45%,var(--line))}
+.s-running,.s-routing,.s-ready{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+.s-failed,.s-blocked{color:var(--bad);border-color:color-mix(in srgb,var(--bad) 45%,var(--line))}
+.s-waiting,.s-created,.s-unknown{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--line))}
+.rows{display:grid;gap:8px;margin-top:13px}.row{display:grid;grid-template-columns:68px minmax(0,1fr);gap:8px}
+.row .k{color:var(--muted)}.row .v{overflow-wrap:anywhere}
+.task,.message{margin-top:12px;padding-top:11px;border-top:1px solid var(--line)}
+.task .k,.message .k{font-size:12px;color:var(--muted);margin-bottom:4px}
+.task .v,.message .v{white-space:pre-wrap;overflow-wrap:anywhere}
+.events{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.event{display:grid;grid-template-columns:92px 150px 130px minmax(0,1fr);gap:12px;padding:9px 12px;border-top:1px solid var(--line);align-items:start}
+.event:first-child{border-top:0}.event .time,.event .source{color:var(--muted);font-size:12px}.event .type{font-family:Consolas,monospace;font-size:12px;color:#cbd6e5}.event .desc{overflow-wrap:anywhere}
+.empty{padding:30px;text-align:center;color:var(--muted);background:var(--panel);border:1px dashed var(--line);border-radius:12px}
+.footer{color:var(--muted);font-size:12px;margin-top:18px;text-align:right}
+@media(max-width:760px){
+  .shell{padding:14px}.top{display:block}.controls{justify-content:flex-start;margin-top:12px}
+  .summary{grid-template-columns:1fr 1fr}.title-card{grid-column:1/-1}
+  .event{grid-template-columns:76px minmax(0,1fr)}.event .source,.event .desc{grid-column:2}.event .source{display:none}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="top">
+    <div class="brand">
+      <h1>AgentHub</h1>
+      <p>实时多 Agent 文字控制台 · 协议 v0.1</p>
+    </div>
+    <div class="controls">
+      <label>
+        <span style="position:absolute;left:-9999px">选择任务</span>
+        <select id="runSelect" aria-label="选择任务"></select>
+      </label>
+      <label class="follow"><input id="followLatest" type="checkbox" checked>跟随最新</label>
+      <button id="refreshBtn" type="button">刷新任务</button>
+      <span class="conn"><span id="connDot" class="dot"></span><span id="connText">连接中</span></span>
+    </div>
+  </div>
+
+  <div id="summary" class="summary"></div>
+
+  <div class="section-head">
+    <h2>AI 团队</h2>
+    <span id="agentCount">0 个 Agent</span>
+  </div>
+  <div id="agents" class="agents"></div>
+
+  <div class="section-head">
+    <h2>最近事件</h2>
+    <span id="updatedAt">等待数据</span>
+  </div>
+  <div id="events" class="events"></div>
+
+  <div class="footer">AgentHub Core 独立运行 · CodePilot 只是当前第一个数据源</div>
+</div>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const els = {
+    runSelect:$("runSelect"), followLatest:$("followLatest"), refreshBtn:$("refreshBtn"), connDot:$("connDot"), connText:$("connText"),
+    summary:$("summary"), agents:$("agents"), agentCount:$("agentCount"), events:$("events"), updatedAt:$("updatedAt")
+  };
+  let stream = null;
+  let currentRun = "";
+
+  const statusZh = {
+    idle:"空闲",created:"已创建",routing:"选择模型",ready:"准备执行",running:"执行中",
+    waiting:"等待",blocked:"阻塞",completed:"已完成",failed:"失败",timed_out:"超时",unknown:"未知"
+  };
+  const eventZh = {
+    "run.created":"任务创建","run.completed":"任务完成","run.failed":"任务失败",
+    "agent.created":"Agent 创建","agent.routing":"正在选择模型","agent.routed":"模型已分配",
+    "agent.started":"开始执行","agent.message":"新消息","agent.waiting":"等待依赖",
+    "agent.blocked":"任务阻塞","agent.completed":"执行完成","agent.failed":"执行失败"
+  };
+
+  function esc(v){
+    return String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+  }
+  function fmtTime(v){
+    if(!v) return "";
+    const d = new Date(v);
+    return Number.isNaN(d.getTime()) ? String(v) : d.toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+  }
+  function fmtUpdated(v){
+    if(!v) return "等待数据";
+    const d = typeof v === "number" ? new Date(v*1000) : new Date(v);
+    return Number.isNaN(d.getTime()) ? "已同步" : "最后同步 " + d.toLocaleTimeString("zh-CN",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+  }
+  function statusClass(s){ return "s-" + (s || "unknown").replace(/[^a-z_]/g,""); }
+  function summaryCard(k,v,extra="",cls=""){
+    return `<div class="card metric ${cls}"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div>${extra?`<div class="sub">${esc(extra)}</div>`:""}</div>`;
+  }
+  function render(data){
+    const agents = Array.isArray(data.agents) ? data.agents : [];
+    els.summary.innerHTML =
+      summaryCard("当前任务", data.title || data.run_id || "暂无任务", data.workspace || "", "title-card") +
+      summaryCard("任务状态", statusZh[data.status] || data.status || "未知") +
+      summaryCard("Agent", agents.length) +
+      summaryCard("数据源", data.source || data.protocol || "—");
+
+    els.agentCount.textContent = agents.length + " 个 Agent";
+    if(!agents.length){
+      els.agents.innerHTML = '<div class="empty">当前没有 Agent 数据</div>';
+    }else{
+      els.agents.innerHTML = agents.map(a => {
+        const task = a.task ? `<div class="task"><div class="k">当前任务</div><div class="v">${esc(a.task)}</div></div>` : "";
+        const message = a.message ? `<div class="message"><div class="k">最新结果 / 消息</div><div class="v">${esc(a.message)}</div></div>` : "";
+        const dep = Array.isArray(a.depends_on) && a.depends_on.length ? a.depends_on.join(", ") : "—";
+        const elapsed = a.elapsed_sec == null ? "—" : Number(a.elapsed_sec).toFixed(1) + " 秒";
+        return `<article class="agent">
+          <div class="agent-top"><div class="agent-name">${esc(a.name || a.agent_id)}</div><span class="badge ${statusClass(a.status)}">${esc(statusZh[a.status] || a.status || "未知")}</span></div>
+          <div class="rows">
+            <div class="row"><div class="k">模型</div><div class="v">${esc(a.model || a.requested_model || "—")}</div></div>
+            <div class="row"><div class="k">角色</div><div class="v">${esc(a.role || "—")}</div></div>
+            <div class="row"><div class="k">依赖</div><div class="v">${esc(dep)}</div></div>
+            <div class="row"><div class="k">耗时</div><div class="v">${esc(elapsed)}</div></div>
+          </div>
+          ${task}${message}
+          ${a.error ? `<div class="message"><div class="k">错误</div><div class="v" style="color:var(--bad)">${esc(a.error)}</div></div>` : ""}
+        </article>`;
+      }).join("");
+    }
+
+    const events = Array.isArray(data.events) ? data.events.slice().reverse() : [];
+    if(!events.length){
+      els.events.innerHTML = '<div class="empty" style="border:0">旧任务暂无标准实时事件；接入 Adapter 后这里会实时滚动。</div>';
+    }else{
+      els.events.innerHTML = events.slice(0,60).map(e => {
+        const d = e.data && typeof e.data === "object" ? e.data : {};
+        const desc = d.message || d.task || d.error || d.name || "";
+        return `<div class="event">
+          <div class="time">${esc(fmtTime(e.ts))}</div>
+          <div class="type">${esc(eventZh[e.type] || e.type || "event")}</div>
+          <div class="source">${esc(d.name || e.agent_id || "run")}</div>
+          <div class="desc">${esc(desc)}</div>
+        </div>`;
+      }).join("");
+    }
+    els.updatedAt.textContent = fmtUpdated(data.updated_at);
+  }
+
+  async function loadRuns(keep=true){
+    try{
+      const res = await fetch("/api/runs",{cache:"no-store"});
+      const payload = await res.json();
+      const runs = Array.isArray(payload.runs) ? payload.runs : [];
+      const before = keep && !els.followLatest.checked ? (currentRun || els.runSelect.value) : "";
+      els.runSelect.innerHTML = runs.length ? runs.map(r =>
+        `<option value="${esc(r.run_id)}">${esc(r.title || r.run_id)} · ${esc(statusZh[r.status] || r.status)} · ${r.agent_count} Agent</option>`
+      ).join("") : '<option value="">暂无任务</option>';
+      const chosen = els.followLatest.checked ? (runs[0]?.run_id || "") : (before && runs.some(r => r.run_id === before) ? before : (runs[0]?.run_id || ""));
+      els.runSelect.value = chosen;
+      if(chosen !== currentRun) connect(chosen);
+      if(!chosen) render({title:"暂无团队任务",status:"idle",agents:[],events:[],updated_at:Date.now()/1000});
+    }catch(err){
+      setConn(false,"读取任务失败");
+    }
+  }
+
+  function setConn(ok,text){
+    els.connDot.className = "dot " + (ok ? "live" : "err");
+    els.connText.textContent = text;
+  }
+
+  function connect(runId){
+    currentRun = runId || "";
+    if(stream){ stream.close(); stream = null; }
+    if(!currentRun){ setConn(false,"无任务"); return; }
+    setConn(false,"连接中");
+    stream = new EventSource("/api/stream?run_id=" + encodeURIComponent(currentRun));
+    stream.addEventListener("snapshot", ev => {
+      try{ render(JSON.parse(ev.data)); setConn(true,"实时同步"); }
+      catch(_){ setConn(false,"数据解析失败"); }
+    });
+    stream.onerror = () => setConn(false,"正在重连");
+  }
+
+  els.runSelect.addEventListener("change", () => { els.followLatest.checked = false; connect(els.runSelect.value); });
+  els.followLatest.addEventListener("change", () => { if(els.followLatest.checked) loadRuns(false); });
+  els.refreshBtn.addEventListener("click", () => loadRuns(true));
+  loadRuns(false);
+  setInterval(() => loadRuns(true), 10000);
+})();
+</script>
+</body>
+</html>
