@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+*.log
+data/runs/
+backups/
+.env
+.DS_Store
+Thumbs.db
+adapters/codepilot/ui-state.json
