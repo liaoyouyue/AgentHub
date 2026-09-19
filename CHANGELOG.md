@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.0 - 2026-09-19
+
+- Added host-independent MCP server using the official MCP Python SDK v2.
+- Added seven lifecycle tools for run/agent creation, updates, events, completion and inspection.
+- Verified MCP 2026-07-28 interoperability in-memory, over real stdio, and over Streamable HTTP.
+- Added Codex, Claude Code, Cursor and OpenCode installer/config support.
+- Added generic MCP configuration output for other hosts.
+- Added generic command adapter for software without MCP support.
+- Added software-independent event writer shared by adapters.
+- Added Streamable HTTP mode for remote/cloud host integration.
+- Reframed CodePilot as one adapter rather than the AgentHub core.
+
 ## 0.1.1 - 2026-09-19
 
 - Added CodePilot-native `AI团队` entry and in-app AgentHub panel.

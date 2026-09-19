@@ -8,3 +8,5 @@ backups/
 .DS_Store
 Thumbs.db
 adapters/codepilot/ui-state.json
+.venv/
+*.egg-info/
