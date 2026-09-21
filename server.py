@@ -47,6 +47,10 @@ RUN_STATUS_BY_EVENT = {
     "run.failed": "failed",
 }
 
+NON_FAILURE_AGENT_EVENTS = set(STATUS_BY_EVENT) - {"agent.failed"}
+RUN_ACTIVE_AGENT_EVENTS = {"agent.routing", "agent.routed", "agent.started", "agent.waiting"}
+RETRY_RESET_EVENTS = {"agent.routing", "agent.routed", "agent.started"}
+
 
 def configured_roots() -> list[Path]:
     raw = os.environ.get("AGENTHUB_RUN_ROOTS", "").strip()
@@ -142,6 +146,10 @@ def replay_standard(run_dir: Path, events: list[dict]) -> dict:
             state["status"] = RUN_STATUS_BY_EVENT[etype]
             state["title"] = str(data.get("title") or state["title"])
             state["workspace"] = str(data.get("workspace") or state["workspace"])
+        elif etype in RUN_ACTIVE_AGENT_EVENTS:
+            # A newer active-agent event re-opens the run after a stale terminal
+            # event. This is important for retries/failover within the same run.
+            state["status"] = "running"
         agent_id = event.get("agent_id")
         if not agent_id:
             continue
@@ -160,6 +168,17 @@ def replay_standard(run_dir: Path, events: list[dict]) -> dict:
             "depends_on": [],
             "updated_at": "",
         })
+        # Errors are point-in-time state, not permanent history. If a newer
+        # non-failure lifecycle event arrives without an error, clear the stale
+        # failure so retries/fallbacks do not keep rendering "execution error".
+        if etype in NON_FAILURE_AGENT_EVENTS and "error" not in data:
+            agent["error"] = ""
+        if etype in RETRY_RESET_EVENTS:
+            if "message" not in data:
+                agent["message"] = ""
+            if "elapsed_sec" not in data:
+                agent["elapsed_sec"] = None
+
         for key in ("name", "role", "task", "model", "requested_model", "message", "error", "elapsed_sec", "depends_on"):
             if key in data and data[key] is not None:
                 agent[key] = data[key]
