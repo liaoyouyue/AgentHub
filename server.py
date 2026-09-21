@@ -50,6 +50,9 @@ RUN_STATUS_BY_EVENT = {
 NON_FAILURE_AGENT_EVENTS = set(STATUS_BY_EVENT) - {"agent.failed"}
 RUN_ACTIVE_AGENT_EVENTS = {"agent.routing", "agent.routed", "agent.started", "agent.waiting"}
 RETRY_RESET_EVENTS = {"agent.routing", "agent.routed", "agent.started"}
+ACTIVE_AGENT_STATUSES = {"created", "routing", "ready", "running", "waiting"}
+WORKING_AGENT_STATUSES = {"routing", "ready", "running"}
+ISSUE_AGENT_STATUSES = {"failed", "blocked", "timed_out", "stuck", "error"}
 
 
 def configured_roots() -> list[Path]:
@@ -130,6 +133,8 @@ def replay_standard(run_dir: Path, events: list[dict]) -> dict:
         "run_id": run_dir.name,
         "title": run_dir.name,
         "status": "unknown",
+        "status_since": "",
+        "last_event_at": "",
         "workspace": "",
         "source": "",
         "agents": {},
@@ -141,14 +146,22 @@ def replay_standard(run_dir: Path, events: list[dict]) -> dict:
     for event in events:
         etype = str(event.get("type") or "")
         data = event.get("data") if isinstance(event.get("data"), dict) else {}
+        event_ts = str(event.get("ts") or "")
+        if event_ts:
+            state["last_event_at"] = event_ts
         state["source"] = str(event.get("source") or state["source"])
         if etype in RUN_STATUS_BY_EVENT:
-            state["status"] = RUN_STATUS_BY_EVENT[etype]
+            next_run_status = RUN_STATUS_BY_EVENT[etype]
+            if next_run_status != state["status"]:
+                state["status_since"] = event_ts or state["status_since"]
+            state["status"] = next_run_status
             state["title"] = str(data.get("title") or state["title"])
             state["workspace"] = str(data.get("workspace") or state["workspace"])
         elif etype in RUN_ACTIVE_AGENT_EVENTS:
             # A newer active-agent event re-opens the run after a stale terminal
             # event. This is important for retries/failover within the same run.
+            if state["status"] != "running":
+                state["status_since"] = event_ts or state["status_since"]
             state["status"] = "running"
         agent_id = event.get("agent_id")
         if not agent_id:
@@ -162,6 +175,7 @@ def replay_standard(run_dir: Path, events: list[dict]) -> dict:
             "model": "",
             "requested_model": "",
             "status": "unknown",
+            "status_since": "",
             "message": "",
             "error": "",
             "elapsed_sec": None,
@@ -183,8 +197,11 @@ def replay_standard(run_dir: Path, events: list[dict]) -> dict:
             if key in data and data[key] is not None:
                 agent[key] = data[key]
         if etype in STATUS_BY_EVENT:
-            agent["status"] = STATUS_BY_EVENT[etype]
-        agent["updated_at"] = str(event.get("ts") or agent["updated_at"])
+            next_agent_status = STATUS_BY_EVENT[etype]
+            if next_agent_status != agent["status"]:
+                agent["status_since"] = event_ts or agent["status_since"]
+            agent["status"] = next_agent_status
+        agent["updated_at"] = event_ts or agent["updated_at"]
     state["agents"] = list(state["agents"].values())
     return state
 
@@ -231,6 +248,7 @@ def legacy_state(run_dir: Path) -> dict:
             "model": model,
             "requested_model": str(item.get("model") or ""),
             "status": status,
+            "status_since": "",
             "message": final[-1000:],
             "error": str(found.get("error") or ""),
             "elapsed_sec": None,
@@ -244,6 +262,8 @@ def legacy_state(run_dir: Path) -> dict:
         "run_id": run_dir.name,
         "title": run_dir.name,
         "status": run_status,
+        "status_since": "",
+        "last_event_at": "",
         "workspace": workspace,
         "source": "legacy.team-orchestrator",
         "agents": agents,
@@ -254,9 +274,43 @@ def legacy_state(run_dir: Path) -> dict:
     }
 
 
+def current_state_metrics(state: dict) -> dict:
+    agents = state.get("agents") if isinstance(state.get("agents"), list) else []
+    statuses = [str(a.get("status") or "unknown").lower() for a in agents if isinstance(a, dict)]
+    issue_agents = []
+    for agent in agents:
+        if not isinstance(agent, dict):
+            continue
+        status = str(agent.get("status") or "unknown").lower()
+        error = str(agent.get("error") or "").strip()
+        unresolved_error = bool(error) and status not in ACTIVE_AGENT_STATUSES and status != "completed"
+        if status in ISSUE_AGENT_STATUSES or unresolved_error:
+            issue_agents.append(str(agent.get("agent_id") or agent.get("name") or "agent"))
+
+    issue_count = len(issue_agents)
+    run_status = str(state.get("status") or "unknown").lower()
+    if run_status in {"failed", "error"} and issue_count == 0:
+        issue_count = 1
+
+    return {
+        "agent_count": len(agents),
+        "active_count": sum(s in ACTIVE_AGENT_STATUSES for s in statuses),
+        "working_count": sum(s in WORKING_AGENT_STATUSES for s in statuses),
+        "waiting_count": sum(s == "waiting" for s in statuses),
+        "completed_count": sum(s == "completed" for s in statuses),
+        "blocked_count": sum(s in {"blocked", "stuck"} for s in statuses),
+        "failed_count": sum(s in {"failed", "timed_out", "error"} for s in statuses),
+        "issue_count": issue_count,
+        "issue_agents": issue_agents,
+        "last_activity_at": state.get("last_event_at") or state.get("updated_at"),
+    }
+
+
 def load_run(run_dir: Path) -> dict:
     events = read_jsonl(run_dir / EVENT_FILE)
-    return replay_standard(run_dir, events) if events else legacy_state(run_dir)
+    state = replay_standard(run_dir, events) if events else legacy_state(run_dir)
+    state["metrics"] = current_state_metrics(state)
+    return state
 
 
 def all_run_dirs() -> list[Path]:
@@ -296,6 +350,8 @@ def list_runs() -> list[dict]:
             "status": state["status"],
             "source": state["source"],
             "agent_count": len(state["agents"]),
+            "active_count": state["metrics"]["active_count"],
+            "issue_count": state["metrics"]["issue_count"],
             "updated_at": state["updated_at"],
             "protocol": state["protocol"],
         })
@@ -306,7 +362,16 @@ def snapshot(run_id: str | None) -> dict:
     runs = all_run_dirs()
     run_dir = find_run(run_id) if run_id else (runs[0] if runs else None)
     if not run_dir:
-        return {"run_id": "", "title": "暂无团队任务", "status": "idle", "workspace": "", "source": "", "agents": [], "events": [], "updated_at": time.time(), "protocol": "0.1"}
+        return {
+            "run_id": "", "title": "暂无团队任务", "status": "idle", "status_since": "",
+            "last_event_at": "", "workspace": "", "source": "", "agents": [], "events": [],
+            "updated_at": time.time(), "protocol": "0.1",
+            "metrics": {
+                "agent_count": 0, "active_count": 0, "working_count": 0, "waiting_count": 0,
+                "completed_count": 0, "blocked_count": 0, "failed_count": 0, "issue_count": 0,
+                "issue_agents": [], "last_activity_at": time.time(),
+            },
+        }
     return load_run(run_dir)
 
 
