@@ -60,4 +60,25 @@ A dashboard reconstructs current state by replaying events in timestamp/file ord
 Run: `title`, `workspace`, `status`.
 Agent: `name`, `role`, `task`, `model`, `requested_model`, `status`, `elapsed_sec`, `message`, `error`, `depends_on`.
 
+## Snapshot-derived current-state fields
+
+The HTTP snapshot may add derived fields without changing the append-only event protocol:
+
+- Run: `status_since`, `last_event_at`.
+- Agent: `status_since`, `updated_at`.
+- `metrics.agent_count`
+- `metrics.active_count`
+- `metrics.working_count`
+- `metrics.waiting_count`
+- `metrics.completed_count`
+- `metrics.blocked_count`
+- `metrics.failed_count`
+- `metrics.issue_count`
+- `metrics.issue_agents`
+- `metrics.last_activity_at`
+
+`issue_count` describes unresolved **current** issues only. A historical failure that was followed by a successful retry/fallback must not remain an active issue. A failed run with no agent-scoped failure still contributes one current issue.
+
+These derived fields are intended for dashboards and animation consumers. The immutable event history remains the source of truth.
+
 This protocol is intentionally small. Animation, graphs, cost tracking and tool-level tracing are consumers/extensions of the same event stream, not replacements for it.
